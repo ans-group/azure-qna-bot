@@ -1,0 +1,458 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "resource_prefix": {
+            "type": "string",
+            "defaultValue": "dev-qnabot",
+            "maxLength": 12,
+            "minLength": 6,
+            "metadata": {
+                "description": "Enter a resource prefix between 6 and 12 characters"
+            }
+        },
+        "environment_tag": {
+            "type": "string",
+            "defaultValue": "Development",
+            "maxLength": 20,
+            "metadata": {
+                "description": "Environment tag applied to resources"
+            }
+        },
+        "application_tag": {
+            "type": "string",
+            "defaultValue": "QnA Bot",
+            "maxLength": 20,
+            "metadata": {
+                "description": "Application tag applied to resources"
+            }
+        },
+        "criticality_tag": {
+            "type": "string",
+            "defaultValue": "Tier 3",
+            "maxLength": 20,
+            "metadata": {
+                "description": "Application tag applied to resources"
+            }
+        },
+        "owner_tag": {
+            "type": "string",
+            "defaultValue": "IT Department User",
+            "maxLength": 20,
+            "metadata": {
+                "description": "Owner tag applied to resources"
+            }
+        },
+        "vnet_address": {
+            "type": "string",
+            "defaultValue": "10.0.0.0",
+            "maxLength": 15,
+            "minLength": 7,
+            "metadata": {
+                "description": "VNet address this will be a /24"
+            }
+        }
+    },
+    "variables": {
+        "storageAccountDataName": "[concat('qnadata',uniquestring(resourceGroup().id),'sa')]",
+        "storageAccountLogsName": "[concat('qnalogs',uniquestring(resourceGroup().id),'sa')]",
+        "storageAccountType": "Standard_LRS",
+        "botWebSiteName": "[concat(parameters('resource_prefix'),'-',uniquestring(resourceGroup().id),'-core-as')]",
+        "botWebSourceCodeBlobcontainerName": "[concat(variables('botWebSiteName'), '-package')]",
+        "botAppLogsBlobcontainerName": "[concat(variables('botWebSiteName'), '-app')]",
+        "botWebLogsBlobcontainerName": "[concat(variables('botWebSiteName'), '-web')]",
+        "qnaWebSiteName": "[concat(parameters('resource_prefix'),'-',uniquestring(resourceGroup().id),'-qna-as')]",
+        "qnaServiceName": "[concat(parameters('resource_prefix'),'-',uniquestring(resourceGroup().id), '-qna-cs')]",
+        "hostingPlanName": "[concat(parameters('resource_prefix'),'-',uniquestring(resourceGroup().id),'-asp')]",
+        "azureSearchName": "[concat(parameters('resource_prefix'),'-',uniquestring(resourceGroup().id),'-ass')]",
+        "vnetName": "[concat(parameters('resource_prefix'),'-',uniquestring(resourceGroup().id),'-vnet')]",
+        "nsgName": "[concat(parameters('resource_prefix'),'-',uniquestring(resourceGroup().id),'-nsg')]",
+        "location": "[resourceGroup().location]",
+        "skuTier": "Standard",
+        "skuName": "S1",
+        "workerSize": "0",
+        "hostingEnvironment": "",
+        "listAccountSasRequestContent": {
+            "signedServices": "bfqt",
+            "signedPermission": "rwdlacup",
+            "signedStart": "2020-01-01T00:00:00Z",
+            "signedExpiry": "2030-01-01T00:00:00Z",
+            "signedResourceTypes": "sco"
+        },
+        "tags": {
+            "environment": "[parameters('environment_tag')]",
+            "application": "[parameters('application_tag')]",
+            "criticality": "[parameters('criticality_tag')]",
+            "owner": "[parameters('owner_tag')]"
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "apiVersion": "2019-11-01",
+            "name": "[variables('nsgName')]",
+            "location": "[variables('location')]",
+            "tags": "[variables('tags')]",
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "http",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "80",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 110,
+                            "direction": "Inbound",
+                            "sourcePortRanges": [],
+                            "destinationPortRanges": [],
+                            "sourceAddressPrefixes": [],
+                            "destinationAddressPrefixes": []
+                        }
+                    },
+                    {
+                        "name": "https",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "443",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 120,
+                            "direction": "Inbound",
+                            "sourcePortRanges": [],
+                            "destinationPortRanges": [],
+                            "sourceAddressPrefixes": [],
+                            "destinationAddressPrefixes": []
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2019-04-01",
+            "name": "[variables('vnetName')]",
+            "location": "[variables('location')]",
+            "tags": "[variables('tags')]",
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "[concat(parameters('vnet_address'),'/24')]"
+                    ]
+                },
+                "dhcpOptions": {
+                    "dnsServers": []
+                },
+                "subnets": [
+                    {
+                        "name": "AppSvc",
+                        "properties": {
+                            "addressPrefix": "[concat(parameters('vnet_address'),'/25')]",
+                            "networkSecurityGroup": {
+                                "id": "[resourceId(resourceGroup().name, 'Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+                            },
+                            "serviceEndpoints": [
+                                {
+                                    "service": "Microsoft.Storage",
+                                    "locations": [
+                                        "[variables('location')]"
+                                    ]
+                                }
+                            ],
+                            "delegations": [
+                                {
+                                    "name": "webapp",
+                                    "properties": {
+                                        "serviceName": "Microsoft.Web/serverFarms",
+                                        "actions": [
+                                            "Microsoft.Network/virtualNetworks/subnets/action"
+                                        ]
+                                    }
+                                }
+                            ],
+                            "privateEndpointNetworkPolicies": "Enabled",
+                            "privateLinkServiceNetworkPolicies": "Enabled"
+                        }
+                    }
+                ],
+                "virtualNetworkPeerings": [],
+                "enableDdosProtection": false,
+                "enableVmProtection": false
+            },
+            "dependsOn": [
+                "[variables('nsgName')]"
+            ]
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "name": "[variables('storageAccountDataName')]",
+            "apiVersion": "2019-06-01",
+            "location": "[variables('location')]",
+            "tags": "[variables('tags')]",
+            "sku": {
+                "name": "[variables('storageAccountType')]"
+            },
+            "kind": "StorageV2",
+            "properties": {
+                "networkAcls": {
+                    "bypass": "AzureServices",
+                    "virtualNetworkRules": [
+                        {
+                            "id": "[resourceId(resourceGroup().name, 'Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), 'AppSvc')]",
+                            "action": "Allow",
+                            "state": "Succeeded"
+                        }
+                    ],
+                    "ipRules": [
+                        {
+                            "value": "92.2.149.245",
+                            "action": "Allow"
+                        }
+                    ],
+                    "defaultAction": "Deny"
+                }
+            },
+            "dependsOn": [
+                "[variables('vnetName')]"
+            ],
+            "resources": [
+                {
+                    "name": "[concat('default/', variables('botWebSourceCodeBlobcontainerName'))]",
+                    "type": "blobServices/containers",
+                    "apiVersion": "2019-06-01",
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountDataName'))]"
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "name": "[variables('storageAccountLogsName')]",
+            "apiVersion": "2019-06-01",
+            "location": "[resourceGroup().location]",
+            "tags": "[variables('tags')]",
+            "sku": {
+                "name": "[variables('storageAccountType')]"
+            },
+            "kind": "StorageV2",
+            "properties": {},
+            "dependsOn": [
+                "[variables('vnetName')]"
+            ],
+            "resources": [
+                {
+                    "name": "[concat('default/', variables('botWebLogsBlobcontainerName'))]",
+                    "type": "blobServices/containers",
+                    "apiVersion": "2019-06-01",
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountLogsName'))]"
+                    ]
+                },
+                {
+                    "name": "[concat('default/', variables('botAppLogsBlobcontainerName'))]",
+                    "type": "blobServices/containers",
+                    "apiVersion": "2019-06-01",
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountLogsName'))]"
+                    ]
+                }
+            ]
+
+        },
+        {
+            "type": "Microsoft.Web/serverfarms",
+            "apiVersion": "2016-09-01",
+            "name": "[variables('hostingPlanName')]",
+            "location": "[variables('location')]",
+            "tags": "[variables('tags')]",
+            "properties": {
+                "name": "[variables('hostingPlanName')]",
+                "workerSizeId": "[variables('workerSize')]",
+                "reserved": false,
+                "numberOfWorkers": "1",
+                "hostingEnvironment": "[variables('hostingEnvironment')]"
+            },
+            "sku": {
+                "Tier": "[variables('skuTier')]",
+                "Name": "[variables('skuName')]"
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountDataName'))]"
+            ]
+        },
+        {
+            "type": "Microsoft.Web/sites",
+            "apiVersion": "2018-11-01",
+            "name": "[variables('botWebSiteName')]",
+            "properties": {
+                "name": "[variables('botWebSiteName')]",
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]",
+                "hostingEnvironment": "[variables('hostingEnvironment')]",
+                "siteConfig": {
+                    "alwaysOn": true,
+                    "webSocketsEnabled": true
+                }
+            },
+            "tags": "[variables('tags')]",
+            "location": "[variables('location')]",
+            "resources": [
+                {
+                    "type": "networkConfig",
+                    "apiVersion": "2018-11-01",
+                    "name": "VirtualNetwork",
+                    "location": "[variables('location')]",
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Web/sites', variables('botWebSiteName'))]",
+                        "[concat('Microsoft.Network/virtualNetworks/', variables('vnetName'))]",
+                        "[resourceId('Microsoft.Web/sites/config/', variables('botWebSiteName'), 'logs')]",
+                        "[resourceId('Microsoft.Web/sites/config/', variables('botWebSiteName'), 'appsettings')]"
+                    ],
+                    "properties":
+                        {
+                            "subnetResourceId": "[resourceId(resourceGroup().name, 'Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), 'AppSvc')]",
+                            "swiftSupported": true
+                        }
+                },
+                {
+                    "apiVersion": "2018-11-01",
+                    "type": "config",
+                    "name": "logs",
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Web/sites', variables('botWebSiteName'))]"
+                    ],
+                    "properties": {
+                        "applicationLogs": {
+                            "azureBlobStorage": {
+                                "level": "Error",
+                                "sasUrl": "[concat(reference(concat('Microsoft.Storage/storageAccounts/', variables('storageAccountLogsName'))).primaryEndpoints.blob, variables('botAppLogsBlobcontainerName'), '?', listAccountSas(variables('storageAccountLogsName'), '2018-02-01', variables('listAccountSasRequestContent')).accountSasToken)]",
+                                "retentionInDays": 7
+                            }
+                        },
+                        "httpLogs": {
+                            "azureBlobStorage": {
+                                "enabled": true,
+                                "sasUrl": "[concat(reference(concat('Microsoft.Storage/storageAccounts/', variables('storageAccountLogsName'))).primaryEndpoints.blob, variables('botWebLogsBlobcontainerName'), '?', listAccountSas(variables('storageAccountLogsName'), '2018-02-01', variables('listAccountSasRequestContent')).accountSasToken)]",
+                                "retentionInDays": 7
+                            }
+                        }
+                    }
+                },
+                {
+                    "apiVersion": "2018-11-01",
+                    "name": "appsettings",
+                    "type": "config",
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Web/Sites', variables('botWebSiteName'))]",
+                        "[resourceId('Microsoft.Web/sites/config/', variables('botWebSiteName'), 'logs')]"
+                    ],
+                    "properties": {
+                        "WEBSITE_NODE_DEFAULT_VERSION": "10.14.1",
+                        "LUIS_URI": "UNDEFINED",
+                        "DB_URL": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountDataName'), ';AccountKey=', listKeys(variables('storageAccountDataName'),'2016-12-01').keys[0].value, ';EndpointSuffix=core.windows.net')]",
+                        "ENV": "production",
+                        "BOT_NAME": "[parameters('resource_prefix')]",
+                        "QNA_HOST": "[concat('https://',reference(resourceId('Microsoft.Web/sites', variables('qnaWebSiteName'))).hostNames[0],'/qnamaker')]",
+                        "QNA_KBID": "UNDEFINED",
+                        "QNA_KEY": "UNDEFINED",
+                        "QNA_THRESHOLD": "80",
+                        "DIAGNOSTICS_AZUREBLOBCONTAINERSASURL": "[concat(reference(concat('Microsoft.Storage/storageAccounts/', variables('storageAccountLogsName'))).primaryEndpoints.blob, variables('botAppLogsBlobcontainerName'), '?', listAccountSas(variables('storageAccountLogsName'), '2018-02-01', variables('listAccountSasRequestContent')).accountSasToken)]",
+                        "DIAGNOSTICS_AZUREBLOBRETENTIONINDAYS": 7,
+                        "WEBSITE_HTTPLOGGING_CONTAINER_URL": "[concat(reference(concat('Microsoft.Storage/storageAccounts/', variables('storageAccountLogsName'))).primaryEndpoints.blob, variables('botWebLogsBlobcontainerName'), '?', listAccountSas(variables('storageAccountLogsName'), '2018-02-01', variables('listAccountSasRequestContent')).accountSasToken)]",
+                        "WEBSITE_HTTPLOGGING_RETENTION_DAYS": 7,
+                        "RESOURCE_PREFIX": "",
+                        "WEBSITE_RUN_FROM_PACKAGE": "UNDEFINED"
+                    }
+                }
+            ],
+            "dependsOn": [
+                "[concat('Microsoft.Web/serverfarms/', variables('hostingPlanName'))]",
+                "[resourceId('Microsoft.Web/Sites', variables('qnaWebSiteName'))]"
+            ]
+        },
+        {
+            "type": "Microsoft.Web/sites",
+            "apiVersion": "2016-08-01",
+            "name": "[variables('qnaWebSiteName')]",
+            "location": "[variables('location')]",
+            "tags": "[variables('tags')]",
+            "properties": {
+                "enabled": true,
+                "siteConfig": {
+                    "cors": {
+                        "allowedOrigins": [
+                            "*"
+                        ]
+                    },
+                    "alwaysOn": true
+                },
+                "name": "[variables('qnaWebSiteName')]",
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]",
+                "hostingEnvironment": "[variables('hostingEnvironment')]"
+            },
+            "dependsOn": [
+                "[concat('Microsoft.Web/serverfarms/', variables('hostingPlanName'))]"
+            ],
+            "resources": [
+                {
+                    "apiVersion": "2016-08-01",
+                    "name": "appsettings",
+                    "type": "config",
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Web/Sites', variables('qnaWebSiteName'))]",
+                        "[resourceId('Microsoft.Search/searchServices/', variables('azureSearchName'))]"
+                    ],
+                    "properties": {
+                        "AzureSearchName": "[variables('azureSearchName')]",
+                        "AzureSearchAdminKey": "[listAdminKeys(resourceId('Microsoft.Search/searchServices/', variables('azureSearchName')), '2015-08-19').primaryKey]",
+                        "PrimaryEndpointKey": "[concat(variables('qnaWebSiteName'), '-PrimaryEndpointKey')]",
+                        "SecondaryEndpointKey": "[concat(variables('qnaWebSiteName'), '-SecondaryEndpointKey')]",
+                        "DefaultAnswer": "No good match found in KB.",
+                        "QNAMAKER_EXTENSION_VERSION": "latest"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Microsoft.CognitiveServices/accounts",
+            "kind": "QnAMaker",
+            "name": "[variables('qnaServiceName')]",
+            "tags": "[variables('tags')]",
+            "apiVersion": "2017-04-18",
+            "location": "westus",
+            "sku": {
+                "name": "F0"
+            },
+            "properties": {
+                "apiProperties": {
+                    "qnaRuntimeEndpoint": "[concat('https://',reference(resourceId('Microsoft.Web/sites', variables('qnaWebSiteName'))).hostNames[0])]"
+                }
+            }
+        },
+        {
+            "name": "[variables('azureSearchName')]",
+            "type": "Microsoft.Search/searchServices",
+            "apiVersion": "2015-08-19",
+            "location": "[variables('location')]",
+            "tags": "[variables('tags')]",
+            "properties": {
+                "replicaCount": 1,
+                "partitionCount": 1,
+                "hostingMode": "Default"
+            },
+            "sku": {
+                "name": "free"
+            }
+        }
+    ],
+    "outputs": {
+        "htmlScript": {
+            "type": "String",
+            "value": "[concat('<script src=\"https://', reference(concat('Microsoft.Web/sites/', variables('botWebSiteName'))).hostnames[0], '/static/webchat.min.js\" data-basebotendpoint=\"', reference(concat('Microsoft.Web/sites/', variables('botWebSiteName'))).hostnames[0], '\" async defer></script>')]"
+        }
+    }
+}
