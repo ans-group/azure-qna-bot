@@ -453,6 +453,14 @@
         "htmlScript": {
             "type": "String",
             "value": "[concat('<script src=\"https://', reference(concat('Microsoft.Web/sites/', variables('botWebSiteName'))).hostnames[0], '/static/webchat.min.js\" data-basebotendpoint=\"', reference(concat('Microsoft.Web/sites/', variables('botWebSiteName'))).hostnames[0], '\" async defer></script>')]"
+        },
+        "storageAccount": {
+            "type": "String",
+            "value": "[variables('storageAccountDataName')]"
+        },
+        "blobContainer": {
+            "type": "String",
+            "value": "[concat(variables('botWebSiteName'), '-package')]"
         }
     }
 }
