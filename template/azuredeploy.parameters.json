@@ -2,5 +2,23 @@
     "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
     "contentVersion": "1.0.0.0",
     "parameters": {
+        "resource_prefix": {
+            "value": "dev-qnabot"
+        },
+        "environment_tag": {
+            "value": "Development"
+        },
+        "application_tag": {
+            "value": "QnA Bot"
+        },
+        "criticality_tag": {
+            "value": "Tier 3"
+        },
+        "owner_tag": {
+            "value": "IT Department User"
+        },
+        "vnet_address": {
+            "value": "10.0.0.0"
+        }
     }
 }
