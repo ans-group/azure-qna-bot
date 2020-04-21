@@ -207,12 +207,6 @@
                             "state": "Succeeded"
                         }
                     ],
-                    "ipRules": [
-                        {
-                            "value": "92.2.149.245",
-                            "action": "Allow"
-                        }
-                    ],
                     "defaultAction": "Deny"
                 }
             },
